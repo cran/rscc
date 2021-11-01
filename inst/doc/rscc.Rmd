@@ -36,12 +36,15 @@ In the first case, detection of similar code sequences can lead to better code q
 
 The goal, however, is not perfect detection of similar code sequences, but rather to give clues as to where similar code sequences might be.
 
-We have some steps to take:
+We have several steps to take:
 
 1. read in the source code
-2. calculate similarity coefficients
-3. get an overview of the calculated similarity coefficients
-4. compare code sequences
+2. create documents from source codes
+3. calculate similarities
+4. get an overview of the calculated similarities
+5. compare code sequences
+
+A thanks to Masatoshi Nishimura to his blog post [The Best Document Similarity Algorithm: A Beginner’s Guide](https://towardsdatascience.com/the-best-document-similarity-algorithm-in-2020-a-beginners-guide-a01b9ef8cf05) which is very inspriring.
 
 ## Step 1: Reading in source codes
 
@@ -63,33 +66,22 @@ If so, the expression is kept for further analysis. The name of the list items i
 
 ```{r}
 files <- list.files(system.file("examples", package="rscc"), "*.R$", full.names = TRUE)
-prgs  <- sourcecode(files, basename=TRUE, minlines=3)
+prgs  <- sourcecode(files, basename=TRUE, minlines=3, silent=TRUE)
 names(prgs)
 ```
 
-## Step 2: Calculate the similarity coefficients
+## Step 2: Create documents
 
-The next step is to calculate similarity coefficients between all source text segments based on the names used:
+The next step is to create documents, based on the names of variables, functions and operators from the parsed source codes-
 
 ```{r}
-files <- list.files(system.file("examples", package="rscc"), "*.R$", full.names = TRUE)
-prgs  <- sourcecode(files, basename=TRUE, silent=TRUE)
-simy  <- similarities(prgs)
-head(simy)
+docs <- documents(prgs)
+# create term document frequency table
+freq_table(docs)[1:8,1:8]
 ```
 
-This calculates the Jaccard coefficients based on the variable names.
-
-The output can be interpreted line by line:
-
-* The variable names used in the files `aa.R` and `aa1.R` are identical. Each variable name used in
-`aa.R` is also used in `aa1.R` and vice versa. 
-* The variable names in the files `bucketSort1_addLines.R` and `bucketSort1.R` are identical.
-* The variable names in the files `isPrime2_addLines.R` and `isPrime2.R` are identical.
-* The variable names in the files `kombinuj1_variables.R` and `kombinuj1.R` are **not** identical. In both files, the variable names overlap by 30%.
-* And so on.
-
-The interpretation will be different if a different similarity coefficient is used! But in any case, a higher similarity coefficient corresponds to a larger proportion of variable names in both files (or expressions).
+With the `type` parameter you can distinguish between different types of names and with `ignore.case`
+the names are either treated case-insensitive or not.
 
 ### `type`
 
@@ -104,28 +96,28 @@ setdiff(all.names(prgs[[1]]), all.vars(prgs[[1]])) # type="f"
 
 ### `minlen` and `ignore.case`
 
-With the parameter `minlen` you can exclude names that are shorter than `minlen`. The default is `minlen=2` because the name of an index variable in loops often consists of only one letter, for example `for (i in 1:n)`. Ignore.case" is either `TRUE` or `FALSE`. If `TRUE` (default), then `"A"=="a"` and so on.
+With the parameter `minlen` you can exclude names that are shorter than `minlen`. The default is `minlen=2` because the name of an index variable in loops often consists of only one letter, for example `for (i in 1:n)`. `ignore.case` is either `TRUE` or `FALSE`. If `TRUE` (default), then names wil case-insensitive, otherwuse case-sensitive.
+
+## Step 3a: Calculate similarity coefficients
+
+In cluster analysis has been developed several similarity coefficients. They use words and basically calculate the intersection of words in documents over the union of words.
+
+To calculate similarity coefficients between 
+all source text segments based on the names used:
 
 ```{r}
 files <- list.files(system.file("examples", package="rscc"), "*.R$", full.names = TRUE)
 prgs  <- sourcecode(files, basename=TRUE, silent=TRUE)
-simy  <- similarities(prgs, minlen=4)
-head(simy)
+docs  <- documents(prgs)
+similarities(docs)[1:8,1:8]
 ```
 
-### `same.file`
+This calculates a matrix of Jaccard coefficients based on the variable names.
 
-If you are only interested in the differences between files, you can set the similarities between expressions
-to zero if they are in the same file. The use case here is to detect plagiarism in different files.
+If the Jaccard coefficient is used then each entry can be interpreted as the percentage:
 
-```{r}
-files <- list.files(system.file("examples", package="rscc"), "*.R$", full.names = TRUE)
-prgs  <- sourcecode(files, basename=TRUE, silent=TRUE, minlines=1)
-simy  <- similarities(prgs)
-attr(simy, "similarity")[1:3,1:3]
-simy  <- similarities(prgs, same.file=FALSE)
-attr(simy, "similarity")[1:3,1:3]
-```
+$$\frac{\text{number of words used in both documents}}{\text{number of all words used in both documents}}.$$
+The interpretation will be different if another similarity coefficient is used! But in any case, a higher similarity coefficient corresponds to a larger proportion of variable names in both files (or expressions).
 
 ### `coeff` (similarity)
 
@@ -165,33 +157,62 @@ If a coefficient name is not found or a `NaN` is generated then a zero is return
 ```{r}
 files <- list.files(system.file("examples", package="rscc"), "*.R$", full.names = TRUE)
 prgs  <- sourcecode(files, basename=TRUE, silent=TRUE)
-simy  <- similarities(prgs, coeff="m")
-head(simy)
+docs  <- documents(prgs)
+similarities(docs, coeff="m")[1:8,1:8]
 ```
 
-###  `decreasing` and `tol`
+## Step 3b: Similarity based on term frequency–inverse document frequency (td-idf)
 
-The matrix `m` of similarities is checked if it is a symmetric matrix. It is symmetric if for all entries holds `abs(m-t(m))<=tol`; the result is stored in the attribute `symmetrical`. The matrix `m` is transformed 
-into a data frame, where the first column is the row index, the second column the column index and the third 
-column the similarity coefficient. If `decreasing` is `TRUE` (default), the data frame is sorted in descending order by the third column.
+Another possibility to find similar source codes as cosine of angles of term frequency–inverse document frequency:
 
 ```{r}
 files <- list.files(system.file("examples", package="rscc"), "*.R$", full.names = TRUE)
 prgs  <- sourcecode(files, basename=TRUE, silent=TRUE)
-simy  <- similarities(prgs)
-head(simy)
+docs  <- documents(prgs)
+tfidf(docs)[1:8,1:8]
 ```
 
-## Step 3: Get an overview about the results
+The attribute `tfidf` of the result matrix contains the term frequency–inverse document frequency matrix.
 
-The first step is to look at the sorted calculated coefficients.
+## Step 4: Get an overview about the results
 
-```{r, fig.height=3}
+Since the matrix of coefficients can not easily be overviewed we have must transform them for visualiziation.
+
+### `matrix2dataframe`
+
+
+With `matrix2dataframe` you transform the matrix of coefficients to a data frame where the first column 
+is the row index, the scrond column the column index and the third column the the matrix entry.
+
+```{r}
 files <- list.files(system.file("examples", package="rscc"), "*.R$", full.names = TRUE)
 prgs  <- sourcecode(files, basename=TRUE, silent=TRUE)
-simy  <- similarities(prgs, type="n", minlen=3)
-stripchart(simy$jaccard, "jitter", pch=19, xlab="Jaccard")
+docs  <- documents(prgs)
+simm  <- similarities(docs, coeff="m")
+simdf <- matrix2dataframe(simm)
+head(simdf, 10)
 ```
+
+As you can see the lines are ordered by decreasing values. The parameter `decreasing=FALSE` will order it by ascending order.
+
+The output can be interpreted line by line:
+
+* The variable names used in the files `aa.R` and `aa1.R` are identical. Each variable name used in
+`aa.R` is also used in `aa1.R` and vice versa. 
+* The variable names in the files `bucketSort1_addLines.R` and `bucketSort1.R` are identical.
+* The variable names in the files `isPrime2_addLines.R` and `isPrime2.R` are identical.
+* The variable names in the files `kombinuj1_variables.R` and `kombinuj1.R` are **not** identical. In both files, the variable names overlap by 30%.
+* And so on.
+
+In case of a symmetric similarity matrix only the upper triangle is considered otherwise the whole matrix.
+
+You may use a `stripchart` to see all similarity coefficients:
+
+```{r, fig.height=3}
+stripchart(simdf[,3], "jitter", pch=19, xlab=names(simdf)[3])
+```
+
+### `as_igraph`
 
 In a second step you can plot the coefficients in a diagram, where thicker edges correspond to higher similarity coefficients.
 
@@ -199,9 +220,10 @@ In a second step you can plot the coefficients in a diagram, where thicker edges
 library("igraph")
 files <- list.files(system.file("examples", package="rscc"), "*.R$", full.names = TRUE)
 prgs  <- sourcecode(files, basename=TRUE, silent=TRUE)
-simy  <- similarities(prgs, type="n", minlen=3)
-graph <- as_igraph(simy, diag=FALSE)
-# color all edges wit a large similarity coefficient in red
+docs  <- documents(prgs, type="n", minlen=3)
+simm  <- similarities(docs)
+graph <- as_igraph(simm, diag=FALSE)
+# color all edges wit a large similarity coefficients in red
 E(graph)$color <- ifelse(E(graph)$weight>0.4, "red", "grey")
 plot(graph, edge.width=1+3*E(graph)$weight)
 box()
@@ -209,15 +231,31 @@ box()
 
 The package [igraph](https://CRAN.R-project.org/package=igraph) is used for the graphical representation. In `as_igraph` the function `igraph::graph_from_adjacency_matrix` is used. In case of a symmetric coefficient matrix, undirected graphs are used, otherwise a directed graph is used.
 
-## Step 4: Detailed analysis of the source code
+### `same_file`
 
-The last step is to compare the relevant source codes. The command `browse` creates and opens an HTML page with the source codes side by side.
+If you are only interested in the differences between files, you can set the similarities between expressions
+to some predefined value (default: zero) if they are in the same file. The use case here is to detect plagiarism in different files.
 
 ```{r}
 files <- list.files(system.file("examples", package="rscc"), "*.R$", full.names = TRUE)
+prgs  <- sourcecode(files, basename=TRUE, silent=TRUE, minlines=1)
+docs  <- documents(prgs)
+simm  <- similarities(docs)
+simm[1:3,1:3]
+simm  <- same_file(simm)
+simm[1:3,1:3]
+```
+
+## Step 5: Detailed analysis of the source code
+
+The last step is to compare the relevant source codes. The command `browse` creates and opens an HTML page with the source codes side by side.
+
+```{r, eval=FALSE}
+files <- list.files(system.file("examples", package="rscc"), "*.R$", full.names = TRUE)
 prgs  <- sourcecode(files, basename=TRUE, silent=TRUE)
-simy  <- similarities(prgs, type="n", minlen=3)
-if (interactive()) browse(prgs, simy, sum(simy$jaccard>0.4))
+docs  <- documents(prgs, type="n", minlen=3)
+simdf <- matrix2dataframe(similarities(docs))
+if (interactive()) browse(prgs, simdf, simdf[,3]>0.4)
 ```
 
 ![](browse.png)
